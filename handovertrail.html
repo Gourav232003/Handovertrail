@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HandoverTrail</title>
+<style>
+:root{--bg:#f3f6f7;--card:#fff;--ink:#17262b;--mut:#5b6b70;--line:#d5dee1;--acc:#0f6b78;--hl:#fff1a8;--ok:#1d7a46;--inf:#9a6200;--bad:#b42318;--mis:#6b4fa3;--rev:#1456b8;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10191c;--card:#18262a;--ink:#e6eef0;--mut:#96a8ad;--line:#2b3d42;--acc:#4cc0cf;--hl:#5a4d10;--ok:#58c487;--inf:#e0a43a;--bad:#ff8a80;--mis:#b9a2ee;--rev:#7fb0ff}}
+:root[data-theme="dark"]{--bg:#10191c;--card:#18262a;--ink:#e6eef0;--mut:#96a8ad;--line:#2b3d42;--acc:#4cc0cf;--hl:#5a4d10;--ok:#58c487;--inf:#e0a43a;--bad:#ff8a80;--mis:#b9a2ee;--rev:#7fb0ff}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:920px;margin:0 auto;padding:18px 14px 60px}
+h1{font:600 26px/1.2 Charter,Georgia,serif;margin:0 0 2px}h2{font:600 19px Charter,Georgia,serif;margin:22px 0 8px}
+.sub{color:var(--mut);margin:0 0 14px}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+nav button{flex:1;min-width:120px;padding:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;cursor:pointer;font:inherit}
+nav button.on{background:var(--acc);color:#fff;border-color:var(--acc)}nav button:disabled{opacity:.45;cursor:default}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin:8px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.grow{flex:1}
+button.b,select,input,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:5px;padding:6px 10px}
+button.b{cursor:pointer}button.p{background:var(--acc);color:#fff;border-color:var(--acc)}button.ok{border-color:var(--ok);color:var(--ok)}button.no{border-color:var(--bad);color:var(--bad)}
+textarea{width:100%;min-height:80px}
+.badge{font-size:12px;font-weight:600;padding:1px 8px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.Verified{color:var(--ok)}.Inferred{color:var(--inf)}.Conflicting{color:var(--bad)}.Missing{color:var(--mis)}.Reviewer-confirmed{color:var(--rev)}
+.ev{border:1px dashed var(--acc);color:var(--acc);background:none;border-radius:4px;padding:0 6px;font-size:12px;cursor:pointer}
+.mut{color:var(--mut);font-size:13px}.rej{opacity:.45;text-decoration:line-through}.ap{border-left:4px solid var(--ok)}
+.src-line{font:13px/1.6 ui-monospace,Menlo,monospace;padding:1px 6px;white-space:pre-wrap}.src-line.h{background:var(--hl)}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:14px;z-index:9}
+#ov>div{background:var(--card);max-width:680px;width:100%;max-height:80vh;overflow:auto;border-radius:8px;padding:14px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+</style></head><body><main>
+<h1>HandoverTrail</h1>
+<p class="sub">Turn scattered project activity into a reviewed, evidence-linked handover. Demo project: CampusEvents app (synthetic data).</p>
+<nav id="nav"></nav><div id="msg" class="card" role="status" style="display:none;position:fixed;bottom:16px;left:14px;right:14px;z-index:10;max-width:520px;margin:auto"></div><div id="app"></div></main>
+<div id="ov" onclick="if(event.target===this)cv()"><div id="ovb"></div></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const red=t=>t.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g,'[email redacted]').replace(/\b\d{10}\b/g,'[phone redacted]').replace(/\bsk-[A-Za-z0-9]{8,}\b/g,'[key redacted]');
+const ROLES={lead:{n:'Project lead',sens:['team','restricted'],src:['repo','notes','tasks','chat']},dev:{n:'Backend maintainer',sens:['team'],src:['repo','notes','tasks','chat']},coord:{n:'Event coordinator',sens:['team'],src:['notes','tasks','chat']}};
+const TYPES={own:'Ownership',dec:'Decisions',risk:'Risks',dep:'Dependencies',blk:'Blockers',q:'Open questions',next:'Next actions'};
+const raw=[
+['Repository log','repo','team',`2026-08-02 | Riya: initial Flask API for event listings
+2026-08-19 | Riya: decided to use MongoDB for events because the schema changes weekly
+2026-09-14 | Riya: payment webhook added, depends on Razorpay test keys from the treasurer
+2026-10-01 | Riya: TODO migrate image upload to cloud storage
+2026-10-05 | Riya: deploy script only works from Riya's laptop, needs rewrite`],
+['Meeting notes','notes','team',`2026-08-25 | Meeting: agreed to move all event data to PostgreSQL
+2026-09-20 | Meeting: Who will handle sponsor emails after Riya leaves?
+2026-10-03 | Meeting: risk: hosting free tier expires on 2026-12-01, site will go down
+2026-10-03 | Meeting: next: confirm venue booking with Prof. Mehta`],
+['Task board','tasks','team',`2026-10-02 | Task: Fix QR check-in bug | owner: Aman | status: in progress
+2026-10-02 | Task: Rewrite deploy script | owner: none | status: blocked
+2026-10-04 | Task: Sponsor tracker sheet | owner: none | status: todo
+2026-10-04 | Task: Image upload migration | owner: Riya | status: todo`],
+['Team chat export','chat','team',`2026-10-06 | Riya: the admin password lives in the shared vault, ask Dev for access
+2026-10-06 | Dev: blocked on hosting credentials until the treasurer replies
+2026-10-07 | Riya: reach me at riya.sharma@example.com or 9876543210 if stuck`],
+['Committee private notes','notes','restricted',`2026-10-08 | Core committee: risk: volunteer conduct complaint under review, do not share outside committee`]];
+let S={src:raw.map((r,i)=>({id:'S'+(i+1),name:r[0],type:r[1],sens:r[2],on:true,text:red(r[3])})),role:'dev',claims:[],vis:[],withheld:0,vers:[],log:[],ack:null,tab:0,ran:false,ed:null};
+const log=m=>S.log.unshift(new Date().toLocaleTimeString()+' - '+m);
+function extract(){
+ const out=[];let n=0;const dbs=[];
+ const add=(t,text,ev,st,date)=>out.push({id:'C'+(++n),t,text,ev,st,date,d:'pending',edited:false});
+ S.vis.forEach(s=>s.text.split('\n').forEach((ln,i)=>{
+  const m=ln.match(/^(\d{4}-\d{2}-\d{2})\s*\|\s*(.*)$/);if(!m)return;
+  const date=m[1],body=m[2],ev=[{sid:s.id,ln:i+1,q:ln}];
+  const tk=body.match(/^Task:\s*(.*?)\s*\|\s*owner:\s*(\w+)\s*\|\s*status:\s*([\w ]+)/i);
+  if(tk){const[,ti,ow,st]=tk;
+   if(ow.toLowerCase()==='none')add('own','No owner found for task: '+ti,ev,'Missing',date);else add('own',ow+' owns: '+ti+' ('+st+')',ev,'Verified',date);
+   if(/blocked/i.test(st))add('blk','Task blocked: '+ti,ev,'Verified',date);return}
+  const tx=body.replace(/^(Meeting|Core committee):\s*/,'').replace(/^(risk|next):\s*/i,'').replace(/\bTODO\s*/,'');
+  if(/\?$|\bTBD\b/i.test(body))add('q',tx+' (no answer found in sources)',ev,'Missing',date);
+  else if(/decided|agreed/i.test(body)){if(/mongodb|postgres/i.test(body))dbs.push({tx,ev,date});else add('dec',tx,ev,'Verified',date)}
+  else if(/depends on|ask \w+ for access/i.test(body))add('dep',tx,ev,'Verified',date);
+  else if(/\brisk\b|expires|only works/i.test(body))add('risk',tx,ev,'Verified',date);
+  else if(/TODO|\bnext:/i.test(body))add('next',tx.replace(/^TODO\s*/i,''),ev,'Verified',date);
+  else if(/blocked/i.test(body))add('blk',tx,ev,'Verified',date)}));
+ const techs=new Set(dbs.map(x=>/mongo/i.test(x.tx)?'MongoDB':'PostgreSQL'));
+ if(techs.size>1)add('dec','Sources disagree on the database for event data: '+[...techs].join(' vs '),dbs.flatMap(x=>x.ev),'Conflicting',dbs[0].date);
+ else dbs.forEach(x=>add('dec',x.tx,x.ev,'Verified',x.date));
+ out.filter(c=>c.t==='blk'||c.st==='Missing'&&c.t==='own').forEach(c=>add('next',(c.t==='blk'?'Resolve blocker: ':'Assign an owner: ')+c.text.replace(/^(Task blocked: |No owner found for task: )/,''),c.ev,'Inferred',c.date));
+ const byId=Object.fromEntries(S.vis.map(s=>[s.id,s]));
+ return out.filter(c=>c.ev.every(e=>byId[e.sid].text.split('\n')[e.ln-1]===e.q))}
+function run(){const R=ROLES[S.role];
+ const on=S.src.filter(s=>s.on);S.vis=on.filter(s=>R.sens.includes(s.sens)&&R.src.includes(s.type));S.withheld=on.length-S.vis.length;
+ S.claims=extract();S.ran=true;S.vers=[];S.ack=null;S.tab=1;log('Reconstructed for '+R.n+': '+S.claims.length+' claims from '+S.vis.length+' sources');draw()}
+const setD=(id,d)=>{const c=S.claims.find(x=>x.id===id);c.d=d;log(d+': '+c.text.slice(0,50));draw()};
+const ed=id=>{S.ed=id;draw()};
+function save(id){const c=S.claims.find(x=>x.id===id);const v=$('#e'+id).value.trim();if(v){c.text=v;c.st='Reviewer-confirmed';c.edited=true;log('edited '+id+' (marked reviewer-confirmed, no source evidence added)')}S.ed=null;draw()}
+const approveAll=()=>{S.claims.forEach(c=>{if(c.st==='Verified'&&c.d==='pending')c.d='approved'});log('approved all Verified claims');draw()};
+function finalize(){const a=S.claims.filter(c=>c.d==='approved');if(!a.length)return toast('Approve at least one claim first.');
+ S.vers.unshift({v:S.vers.length+1,at:new Date().toLocaleString(),role:ROLES[S.role].n,items:JSON.parse(JSON.stringify(a)),excl:S.claims.length-a.length});S.ack=null;log('approved handover v'+S.vers[0].v);S.tab=2;draw()}
+function doAck(){const n=$('#an').value.trim();if(!n)return toast('Enter your name to acknowledge.');S.ack={n,at:new Date().toLocaleString(),v:S.vers[0].v};log('acknowledged by '+n);draw()}
+function view(sid,ln){const s=S.src.find(x=>x.id===sid);$('#ovb').innerHTML=`<b>${esc(s.name)}</b> <span class="mut">(${s.type}, ${s.sens})</span><div class="card">`+s.text.split('\n').map((l,i)=>`<div class="src-line ${i+1===ln?'h':''}">${i+1}  ${esc(l)}</div>`).join('')+`</div><button class="b" onclick="cv()">Close</button>`;$('#ov').style.display='flex'}
+const cv=()=>$('#ov').style.display='none';
+function toast(m){const e=$('#msg');e.textContent=m;e.style.display='block';setTimeout(()=>e.style.display='none',3500)}
+function addSrc(){const t=$('#nt').value.trim();if(!t)return toast('Paste some lines first. Format: 2026-10-09 | text');
+ S.src.push({id:'S'+(S.src.length+1),name:$('#nn').value||'Added source',type:$('#nty').value,sens:$('#ns').value,on:true,text:red(t)});log('added source (redacted on import)');draw()}
+const ev=c=>c.ev.map(e=>`<button class="ev" onclick="view('${e.sid}',${e.ln})">${e.sid} line ${e.ln}</button>`).join(' ');
+function card(c,final){const b=`<span class="badge ${c.st}">${c.st}</span>`;
+ if(final)return `<div class="card ${c.st==='Missing'||c.st==='Conflicting'?'':'ap'}"><div class="row"><span class="grow">${esc(c.text)}</span>${b}</div><div class="mut">${c.edited?'Edited by reviewer, no source link. ':''}${c.ev.length&&!c.edited?ev(c):''}</div></div>`;
+ return `<div class="card ${c.d==='approved'?'ap':''}"><div class="row"><span class="grow ${c.d==='rejected'?'rej':''}">${S.ed===c.id?`<input id="e${c.id}" style="width:100%" value="${esc(c.text)}">`:esc(c.text)}</span>${b}</div>
+ <div class="row mut" style="margin-top:6px"><span>Evidence: ${ev(c)}</span><span class="grow"></span>
+ ${S.ed===c.id?`<button class="b p" onclick="save('${c.id}')">Save</button>`:`<button class="b" onclick="ed('${c.id}')">Edit</button>`}
+ <button class="b ok" onclick="setD('${c.id}','approved')">Approve</button><button class="b no" onclick="setD('${c.id}','rejected')">Reject</button></div></div>`}
+function draw(){
+ $('#nav').innerHTML=['1 Connect','2 Review','3 Handover'].map((t,i)=>`<button class="${S.tab===i?'on':''}" ${i&&!S.ran||i===2&&!S.vers.length?'disabled':''} onclick="S.tab=${i};draw()">${t}</button>`).join('');
+ let h='';
+ if(S.tab===0){
+  h=`<h2>Connect authorised sources</h2><p class="mut">Tick the sources you are authorised to use and set their sensitivity. Emails, phone numbers and keys are redacted on import.</p>`+
+  S.src.map((s,i)=>`<div class="card row"><label class="grow"><input type="checkbox" ${s.on?'checked':''} onchange="S.src[${i}].on=this.checked"> <b>${esc(s.name)}</b> <span class="mut">${s.id}, ${s.type}, ${s.text.split('\n').length} lines</span></label>
+  <select onchange="S.src[${i}].sens=this.value"><option ${s.sens==='team'?'selected':''}>team</option><option ${s.sens==='restricted'?'selected':''}>restricted</option></select><button class="b" onclick="view('${s.id}',0)">Open</button></div>`).join('')+
+  `<details class="card"><summary>Add your own source</summary><div class="row" style="margin:8px 0"><input id="nn" placeholder="Name"><select id="nty"><option>notes</option><option>repo</option><option>tasks</option><option>chat</option></select><select id="ns"><option>team</option><option>restricted</option></select></div>
+  <textarea id="nt" placeholder="One event per line: 2026-10-09 | Meeting: agreed to use Redis for caching"></textarea><button class="b" onclick="addSrc()">Add source</button></details>
+  <h2>Who is taking over?</h2><div class="card row"><select id="rl" onchange="S.role=this.value">${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${S.role===k?'selected':''}>${r.n}</option>`).join('')}</select>
+  <span class="mut grow">Sources this role may not see are removed before anything is extracted.</span><button class="b p" onclick="run()">Reconstruct project state</button></div>`}
+ if(S.tab===1){
+  const cnt=k=>S.claims.filter(c=>c.st===k).length;
+  h=`<h2>Review the reconstruction</h2><div class="card"><b>${S.claims.length} claims</b> for ${ROLES[S.role].n}, from ${S.vis.length} sources. ${S.withheld?`<span class="mut">${S.withheld} authorised source(s) withheld for this role, so these claims reflect only what this role may see (a conflict involving a withheld source will not appear).</span>`:''}<br>
+  ${['Verified','Inferred','Conflicting','Missing','Reviewer-confirmed'].map(k=>`<span class="badge ${k}">${k}: ${cnt(k)}</span>`).join(' ')}
+  <p class="mut">Verified = quoted source line found. Inferred = suggested by the system, not stated in a source. Missing = a gap we will not guess. Conflicting = sources disagree.</p>
+  <div class="row"><button class="b" onclick="approveAll()">Approve all Verified</button><button class="b p" onclick="finalize()">Finalize handover (${S.claims.filter(c=>c.d==='approved').length} approved)</button></div></div>
+  <h2>Timeline</h2><div class="card">`+[...S.claims].filter(c=>c.t!=='next'||c.st==='Verified').sort((a,b)=>a.date.localeCompare(b.date)).map(c=>`<div><span class="mut">${c.date}</span> ${TYPES[c.t]}: ${esc(c.text)}</div>`).join('')+`</div>`+
+  Object.entries(TYPES).map(([k,l])=>{const L=S.claims.filter(c=>c.t===k);return L.length?`<h2>${l}</h2>`+L.map(c=>card(c)).join(''):''}).join('')}
+ if(S.tab===2){const v=S.vers[0];
+  h=`<h2>Handover for ${v.role}</h2><div class="card">Version ${v.v}, approved ${v.at}. ${v.items.length} approved claims; ${v.excl} unapproved or rejected claims excluded.</div>`+
+  Object.entries(TYPES).map(([k,l])=>{const L=v.items.filter(c=>c.t===k);return L.length?`<h2>${l}</h2>`+L.map(c=>card(c,1)).join(''):''}).join('')+
+  `<h2>Acknowledge receipt</h2><div class="card row">${S.ack?`<b>Acknowledged by ${esc(S.ack.n)}</b> <span class="mut">${S.ack.at}, version ${S.ack.v}</span>`:`<input id="an" placeholder="Your name"><button class="b p" onclick="doAck()">Acknowledge handover</button>`}</div>
+  <h2>History</h2><div class="card mut">`+S.vers.map(x=>`Version ${x.v}, ${x.at}, ${x.items.length} claims`).join('<br>')+`<br><br>`+S.log.slice(0,12).map(esc).join('<br>')+`</div>`}
+ $('#app').innerHTML=h}
+draw();
+</script></body></html>
